@@ -37,3 +37,7 @@ No partner recruitment payments are created. Commission comes from eligible reco
 ## Boundaries
 
 This is the internal operations application. Live learners, customers, checkout, payment verification, automatic transfers and external affiliate accounts need separate integrations. No sample records appear in the live database.
+
+## Production connections
+
+See PRODUCTION_SETUP.md for Supabase PostgreSQL setup, owner authenticator enrollment, SMTP invitations/verification/recovery, encrypted Google tokens and the exact credential list. Only the owner can connect Google Meet. Customer, learner and payment data require separate View permissions and department/record scopes.

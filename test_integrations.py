@@ -1,12 +1,13 @@
 import hashlib,hmac,json,os,sqlite3,tempfile,time,unittest
 from unittest.mock import patch
-import server,integrations
+import server
+import test_support,integrations
 class Response:
  def __init__(self,path,headers=None):self.path=path;self.headers=headers or {};self.client_address=('test',0);self.status=None
  def send(self,status,data=None,headers=None):self.status=status;self.data=data or {};self.output_headers=headers or {}
 class IntegrationTests(unittest.TestCase):
  def setUp(self):
-  self.temp=tempfile.TemporaryDirectory();self.old_db=server.DB;self.old_boot=server.BOOTSTRAP;server.DB=server.pathlib.Path(self.temp.name)/'test.sqlite3';server.BOOTSTRAP=server.pathlib.Path(self.temp.name)/'none';server.init();self.c=server.connection()
+  self.temp=tempfile.TemporaryDirectory();self.old_db=server.DB;self.old_boot=server.BOOTSTRAP;server.DB=server.pathlib.Path(self.temp.name)/'test.sqlite3';server.BOOTSTRAP=server.pathlib.Path(self.temp.name)/'none';test_support.prepare(server);server.init();self.c=server.connection()
   self.c.execute('INSERT INTO users VALUES(?,?,?,?,?,?,1)',('owner','Owner',server.OWNER_EMAIL,server.pw_hash('test-password-123'),'admin','Business OS'));self.c.commit()
  def tearDown(self):self.c.close();server.DB=self.old_db;server.BOOTSTRAP=self.old_boot;self.temp.cleanup()
  def test_partner_isolation_signup_login(self):

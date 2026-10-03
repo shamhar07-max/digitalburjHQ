@@ -7,3 +7,7 @@ owner_account.json
 private/
 .env.*
 !.env.example
+
+DigitalBurj_HQ_Preview.html
+*.b64
+public/brand/wordmark-clear.png

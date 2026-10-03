@@ -1,9 +1,10 @@
 import http.cookiejar,json,os,pathlib,socket,subprocess,tempfile,time,unittest,urllib.request,urllib.error
 import server
+import test_support
 class HQTests(unittest.TestCase):
  @classmethod
  def setUpClass(cls):
-  cls.tmp=tempfile.TemporaryDirectory();server.DB=pathlib.Path(cls.tmp.name)/'test.sqlite3';server.BOOTSTRAP=pathlib.Path(cls.tmp.name)/'disabled.json';server.init()
+  cls.tmp=tempfile.TemporaryDirectory();server.DB=pathlib.Path(cls.tmp.name)/'test.sqlite3';server.BOOTSTRAP=pathlib.Path(cls.tmp.name)/'disabled.json';test_support.prepare(server);server.init()
   with server.connection() as c:
    for uid,email,role,dept in [('admin','shamhar07@gmail.com','admin','Business OS'),('teacher','teacher@test.invalid','teacher','Academy'),('otheradmin','otheradmin@test.invalid','admin','Studio')]:c.execute('INSERT INTO users VALUES(?,?,?,?,?,?,1)',(uid,uid,email,server.pw_hash('testing-password-123'),role,dept))
    for permission,scope,scope_id in [('tasks.view','assigned',''),('tasks.update','assigned',''),('tasks.comment','assigned',''),('reviews.view','assigned',''),('reviews.submit','department','Academy'),('notifications.view','assigned',''),('messages.use','department','Academy'),('meetings.view','assigned','')]:c.execute('INSERT INTO grants VALUES(?,?,?,?,?,?)',(server.secrets.token_hex(12),'teacher',permission,scope,scope_id,server.stamp()))

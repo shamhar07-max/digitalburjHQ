@@ -1,10 +1,12 @@
 """Partner portal, Google OAuth and authenticated division/payment ingestion."""
 import datetime, hashlib, hmac, http.cookies, json, os, pathlib, re, secrets, time, urllib.parse, urllib.request
 import hq_features as f
+import secrets_store
 COOKIE='db_partner_session'
 PROGRAMS=['Referral','Sales','Creator','Campus','Agency']
 def init(c):
  c.executescript('''
+ CREATE TABLE IF NOT EXISTS service_tokens(name TEXT PRIMARY KEY,encrypted TEXT NOT NULL);
  CREATE TABLE IF NOT EXISTS partner_accounts(id TEXT PRIMARY KEY REFERENCES affiliates(id),password TEXT NOT NULL);
  CREATE TABLE IF NOT EXISTS partner_sessions(token TEXT PRIMARY KEY,partner_id TEXT REFERENCES affiliates(id),csrf TEXT,expires REAL);
  CREATE TABLE IF NOT EXISTS oauth_states(state TEXT PRIMARY KEY,user_id TEXT,session_token TEXT,expires REAL);
@@ -13,6 +15,9 @@ def init(c):
  CREATE TABLE IF NOT EXISTS commerce_orders(id TEXT PRIMARY KEY,email TEXT,product TEXT,net_cents INTEGER,currency TEXT,affiliate_id TEXT REFERENCES affiliates(id),status TEXT,provider_id TEXT UNIQUE,created TEXT);
  ''')
  if 'payment_intent' not in [r[1] for r in c.execute('PRAGMA table_info(commerce_orders)')]:c.execute("ALTER TABLE commerce_orders ADD COLUMN payment_intent TEXT")
+ register_permissions()
+
+def register_permissions():
  for key,label in [('customers.view','View customer records'),('learners.view','View learner records'),('payments.view','View payment records')]:f.PERMISSIONS[key]=label
 
 def base():
@@ -21,8 +26,17 @@ def base():
  return value
 
 def tokens_path():return pathlib.Path(os.environ.get('HQ_GOOGLE_TOKEN_FILE',str(pathlib.Path(__file__).parent/'private/google.json')))
-def google_connected():return tokens_path().is_file() or bool(os.environ.get('GOOGLE_MEET_ACCESS_TOKEN') or os.environ.get('GOOGLE_REFRESH_TOKEN'))
-def google_token():
+def google_connected(c=None):
+ if c is not None and c.execute("SELECT 1 FROM service_tokens WHERE name='google'").fetchone():return True
+ return (os.environ.get('HQ_ENV')!='production' and tokens_path().is_file()) or bool(os.environ.get('GOOGLE_MEET_ACCESS_TOKEN') or os.environ.get('GOOGLE_REFRESH_TOKEN'))
+def google_token(c=None):
+ import server
+ if c is not None:data=secrets_store.get(c,'google')
+ else:
+  with server.connection() as current:data=secrets_store.get(current,'google')
+ if data:
+  return request('https://oauth2.googleapis.com/token',{'client_id':os.environ['GOOGLE_CLIENT_ID'],'client_secret':os.environ['GOOGLE_CLIENT_SECRET'],'refresh_token':data['refresh_token'],'grant_type':'refresh_token'})['access_token']
+ if os.environ.get('HQ_ENV')=='production':return None
  p=tokens_path()
  if not p.is_file():return None
  token=json.loads(p.read_text()).get('refresh_token')
@@ -52,7 +66,7 @@ def get(h,c,u,s):
   for r in c.execute('SELECT * FROM division_records ORDER BY created DESC LIMIT 1000'):
    permission={'learner':'learners.view','customer':'customers.view','payment':'payments.view'}[r['kind']]
    if f.has(c,u,permission,r['department'],r['id']):records.append({**dict(r),'data':json.loads(r['data'])})
-  h.send(200,{'records':records,'owner':f.owner(u),'google_connected':google_connected(),'google_configured':bool(os.environ.get('GOOGLE_CLIENT_ID') and os.environ.get('GOOGLE_CLIENT_SECRET')),'stripe_configured':bool(os.environ.get('STRIPE_SECRET_KEY') and os.environ.get('STRIPE_WEBHOOK_SECRET'))});return True
+  h.send(200,{'records':records,'owner':f.owner(u),'google_connected':google_connected(c),'google_configured':bool(os.environ.get('GOOGLE_CLIENT_ID') and os.environ.get('GOOGLE_CLIENT_SECRET')),'stripe_configured':bool(os.environ.get('STRIPE_SECRET_KEY') and os.environ.get('STRIPE_WEBHOOK_SECRET'))});return True
  if path.path=='/api/google/callback':
   if not u or not f.owner(u):h.send(403);return True
   state=q.get('state',[''])[0];row=c.execute('SELECT * FROM oauth_states WHERE state=? AND expires>?',(hashlib.sha256(state.encode()).hexdigest(),time.time())).fetchone()
@@ -62,10 +76,7 @@ def get(h,c,u,s):
   result=request('https://oauth2.googleapis.com/token',{'client_id':os.environ['GOOGLE_CLIENT_ID'],'client_secret':os.environ['GOOGLE_CLIENT_SECRET'],'code':q.get('code',[''])[0],'redirect_uri':base()+'/api/google/callback','grant_type':'authorization_code'})
   if 'https://www.googleapis.com/auth/meetings.space.created' not in result.get('scope','').split():raise ValueError('Google Meet permission was not granted.')
   if not result.get('refresh_token'):raise ValueError('Offline permission was not granted. Reconnect and approve access.')
-  p=tokens_path();p.parent.mkdir(parents=True,exist_ok=True);p.parent.chmod(0o700)
-  temp=p.with_suffix('.tmp');fd=os.open(temp,os.O_WRONLY|os.O_CREAT|os.O_TRUNC,0o600)
-  with os.fdopen(fd,'w') as out:json.dump({'refresh_token':result['refresh_token']},out)
-  temp.replace(p);f.audit(c,u,'Connected Google Meet','Google');h.send_response(303);h.send_header('Location','/');h.end_headers();return True
+  secrets_store.put(c,'google',{'refresh_token':result['refresh_token']});f.audit(c,u,'Connected Google Meet','Google');h.send_response(303);h.send_header('Location','/');h.end_headers();return True
  return False
 
 def post(h,c,b,raw,pw_hash,pw_ok):
@@ -77,11 +88,14 @@ def post(h,c,b,raw,pw_hash,pw_ok):
   count=a['count']+1 if a and a['until']>now else 1;c.execute('INSERT OR REPLACE INTO attempts VALUES(?,?,?)',(key,count,now+900))
   if path.endswith('signup'):
    if not re.fullmatch(r'[^\s@]+@[^\s@]+\.[^\s@]+',email) or len(email)>254 or len(password)<12 or len(password)>256 or b.get('program') not in PROGRAMS or b.get('terms') is not True:raise ValueError('Enter valid details, a 12-character password and accept the programme terms.')
-   name=f.clean(b,'name',100);aid=f.uid();c.execute("INSERT INTO affiliates(id,name,email,program,owner,status,training,code,created) VALUES(?,?,?,?,NULL,'Applied',0,?,?)",(aid,name,email,b['program'],'DB-'+secrets.token_hex(4).upper(),f.now()));c.execute('INSERT INTO partner_accounts VALUES(?,?)',(aid,pw_hash(password)))
+   name=f.clean(b,'name',100);aid=f.uid();c.execute("INSERT INTO affiliates(id,name,email,program,owner,status,training,code,created) VALUES(?,?,?,?,NULL,'Applied',0,?,?)",(aid,name,email,b['program'],'DB-'+secrets.token_hex(4).upper(),f.now()));c.execute('INSERT INTO partner_accounts(id,password) VALUES(?,?)',(aid,pw_hash(password)))
    for owner in c.execute('SELECT id FROM users WHERE email=?',(f.OWNER,)):f.notify(c,owner['id'],'New affiliate application: '+name)
+   import account_mail
+   if account_mail.enabled():account_mail.issue(c,email,'verify',aid)
    h.send(201,{'ok':True});return True
-  p=c.execute('SELECT a.*,p.password FROM partner_accounts p JOIN affiliates a ON a.id=p.id WHERE a.email=?',(email,)).fetchone()
+  p=c.execute('SELECT a.*,p.password,p.verified FROM partner_accounts p JOIN affiliates a ON a.id=p.id WHERE a.email=?',(email,)).fetchone()
   if not p or len(password)>256 or not pw_ok(password,p['password']):h.send(401,{'error':'Email or password is incorrect.'});return True
+  if os.environ.get('HQ_ENV')=='production' and not p['verified']:raise ValueError('Verify your email before signing in. Use the resend verification link.')
   token=secrets.token_urlsafe(32);csrf=secrets.token_urlsafe(32);c.execute('INSERT INTO partner_sessions VALUES(?,?,?,?)',(hashlib.sha256(token.encode()).hexdigest(),p['id'],csrf,now+28800))
   h.send(200,{'csrf':csrf},{'Set-Cookie':COOKIE+'='+token+'; HttpOnly; SameSite=Strict; Path=/; Max-Age=28800'+('; Secure' if os.environ.get('HQ_SECURE_COOKIE')=='1' else '')});return True
  if path=='/api/partner/logout':
@@ -108,7 +122,7 @@ def owner_post(h,c,u,b):
  if h.path not in ['/api/google/connect','/api/google/disconnect']:return False
  if not f.owner(u):h.send(403);return True
  if h.path.endswith('disconnect'):
-  tokens_path().unlink(missing_ok=True);f.audit(c,u,'Disconnected local Google authorization','Google');h.send(200,{'ok':True});return True
+  secrets_store.delete(c,'google');tokens_path().unlink(missing_ok=True);f.audit(c,u,'Disconnected local Google authorization','Google');h.send(200,{'ok':True});return True
  if not os.environ.get('GOOGLE_CLIENT_ID') or not os.environ.get('GOOGLE_CLIENT_SECRET'):raise ValueError('Configure Google client credentials on the server first.')
  state=secrets.token_urlsafe(32);_,session=h.user(c)
  c.execute('INSERT INTO oauth_states VALUES(?,?,?,?)',(hashlib.sha256(state.encode()).hexdigest(),u['id'],session['token'],time.time()+600))
@@ -156,7 +170,7 @@ def stripe_event(h,c,b,raw):
    dept={'Business':'Business OS','Academy':'Academy','Studio':'Studio'}[order['product']]
    for kind in ['payment','learner' if dept=='Academy' else 'customer']:
     payload={'email':order['email'],'product':order['product'],'payment_status':'Paid','order_id':order['id'],'provisioning_status':'Awaiting division fulfillment'}
-    c.execute('INSERT OR REPLACE INTO division_records VALUES(?,?,?,?,?,?)',(f.uid(),dept,kind,order['id'],json.dumps(payload),f.now()))
+    c.execute('INSERT INTO division_records VALUES(?,?,?,?,?,?) ON CONFLICT(department,kind,external_id) DO UPDATE SET data=excluded.data,created=excluded.created',(f.uid(),dept,kind,order['id'],json.dumps(payload),f.now()))
  elif typ=='charge.refunded':
   # Full and partial refunds both stop unpaid commission; paid recoveries need finance review.
   order=c.execute('SELECT provider_id FROM commerce_orders WHERE payment_intent=?',(obj.get('payment_intent'),)).fetchone()

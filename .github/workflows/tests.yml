@@ -1,0 +1,35 @@
+name: HQ verification
+on: [push, pull_request]
+permissions:
+  contents: read
+jobs:
+  backend:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:17
+        env:
+          POSTGRES_PASSWORD: disposable-test-password
+          POSTGRES_DB: hq_test
+        ports: ['5432:5432']
+        options: >-
+          --health-cmd pg_isready --health-interval 10s --health-timeout 5s --health-retries 5
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+      - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6
+        with:
+          python-version: '3.12'
+      - run: pip install --require-hashes -r requirements.txt
+      - name: SQLite and application checks
+        run: python -m unittest test_hq.py test_integrations.py test_production.py -v
+      - name: PostgreSQL checks
+        env:
+          DATABASE_URL: postgresql://postgres:disposable-test-password@localhost:5432/hq_test?sslmode=disable
+          HQ_TEST_POSTGRES: '1'
+        run: python -m unittest test_hq.py test_integrations.py test_production.py -v
+      - name: Frontend syntax
+        run: |
+          node --check public/app.js
+          node --check public/hq-modules.js
+          node --check public/partners.js
+          node --check public/account.js

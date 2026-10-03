@@ -4,6 +4,10 @@ import argparse, datetime, hashlib, hmac, http.cookies, json, mimetypes, os, pat
 from http.server import ThreadingHTTPServer, BaseHTTPRequestHandler
 import hq_features as features
 import integrations
+import database
+import account_mail
+import auth_security
+import logging
 ROOT=pathlib.Path(__file__).parent
 DB=pathlib.Path(os.environ.get('HQ_DB',str(ROOT/'hq.sqlite3')))
 DEPTS=['Business OS','Academy','Studio','Growth']
@@ -14,19 +18,24 @@ BOOTSTRAP=pathlib.Path(os.environ.get('HQ_BOOTSTRAP',str(ROOT/'owner_account.jso
 def is_owner(user):
  return bool(user and user['email']==OWNER_EMAIL and user['role']=='admin')
 def connection():
- c=sqlite3.connect(DB,timeout=15); c.row_factory=sqlite3.Row;c.execute('PRAGMA foreign_keys=ON');return c
+ return database.connection(DB)
 def stamp():return datetime.datetime.now(datetime.timezone.utc).isoformat(timespec='seconds')
 def pw_hash(password):
  salt=secrets.token_hex(16);return salt+':'+hashlib.scrypt(password.encode(),salt=bytes.fromhex(salt),n=16384,r=8,p=1).hex()
 def pw_ok(password,value):
  salt,digest=value.split(':');return hmac.compare_digest(digest,hashlib.scrypt(password.encode(),salt=bytes.fromhex(salt),n=16384,r=8,p=1).hex())
-def public(row):
+def public(row,c=None):
  result={k:row[k] for k in ['id','name','email','role','department','active']};result['can_invite']=is_owner(row)
- with connection() as c:result['permissions']=features.permissions(c,row)
+ if c is not None:result['permissions']=features.permissions(c,row)
+ else:
+  with connection() as current:result['permissions']=features.permissions(current,row)
  return result
 def audit(c,user,action,target):c.execute('INSERT INTO audit(actor,action,target,created) VALUES(?,?,?,?)',(user,action,str(target),stamp()))
 def init():
- with connection() as c:c.executescript('''
+ with connection() as c:
+  if c.is_postgres:
+   database.verify(c)
+  else:c.executescript('''
  CREATE TABLE IF NOT EXISTS users(id TEXT PRIMARY KEY,name TEXT NOT NULL,email TEXT UNIQUE NOT NULL,password TEXT NOT NULL,role TEXT NOT NULL,department TEXT NOT NULL,active INTEGER NOT NULL DEFAULT 1);
  CREATE TABLE IF NOT EXISTS sessions(token TEXT PRIMARY KEY,user_id TEXT REFERENCES users(id),csrf TEXT NOT NULL,expires REAL NOT NULL);
  CREATE TABLE IF NOT EXISTS invitations(token TEXT PRIMARY KEY,email TEXT NOT NULL,role TEXT NOT NULL,department TEXT NOT NULL,expires REAL NOT NULL,used INTEGER DEFAULT 0);
@@ -37,7 +46,8 @@ def init():
  CREATE TABLE IF NOT EXISTS attempts(key TEXT PRIMARY KEY,count INTEGER,until REAL);
  ''')
  with connection() as c:
-  features.init(c);integrations.init(c)
+  if not c.is_postgres:features.init(c);integrations.init(c);account_mail.init(c)
+  else:integrations.register_permissions()
  if BOOTSTRAP.is_file():
   b=json.loads(BOOTSTRAP.read_text())
   if b.get('email')!=OWNER_EMAIL:raise RuntimeError('Invalid HQ owner configuration')
@@ -59,6 +69,13 @@ class Handler(BaseHTTPRequestHandler):
   if not session:return None,None
   u=c.execute('SELECT * FROM users WHERE id=? AND active=1',(session['user_id'],)).fetchone();return u,session
  def do_GET(self):
+  if self.path=='/healthz':return self.send(200,{'status':'ok'})
+  if self.path=='/readyz':
+   try:
+    with connection() as c:
+     c.execute('SELECT 1').fetchone();database.verify(c)
+    return self.send(200,{'status':'ready'})
+   except Exception:return self.send(503,{'status':'unavailable'})
   if self.path.split('?')[0].startswith('/api/'):
    with connection() as c:
     u,s=self.user(c)
@@ -66,9 +83,9 @@ class Handler(BaseHTTPRequestHandler):
      if integrations.get(self,c,u,s):return
     except ValueError as e:return self.send(400,{'error':str(e)})
     if not u:return self.send(401,{'error':'Sign in to continue.'})
-    if self.path=='/api/me':return self.send(200,{'user':public(u),'csrf':s['csrf']})
+    if self.path=='/api/me':return self.send(200,{'user':public(u,c),'csrf':s['csrf']})
     if self.path!='/api/workspace':return self.send(404,{'error':'Not found'})
-    return self.send(200,features.workspace(c,u,public))
+    return self.send(200,features.workspace(c,u,lambda row:public(row,c)))
   path=self.path.split('?')[0];p=ROOT/'public'/('index.html' if path=='/' else path.lstrip('/'))
   try:p=p.resolve();p.relative_to((ROOT/'public').resolve())
   except ValueError:return self.send(403)
@@ -82,22 +99,26 @@ class Handler(BaseHTTPRequestHandler):
    b=json.loads(raw or '{}')
    if not isinstance(b,dict):raise ValueError('Invalid request')
    with connection() as c:
+    if c.is_postgres:c.execute('SELECT pg_advisory_xact_lock(72844002)')
+    if account_mail.post(self,c,b,pw_hash):return
     if self.path=='/api/stripe/webhook':return integrations.stripe_event(self,c,b,raw)
     if self.path=='/api/partner/checkout':return integrations.checkout(self,c,b)
     if integrations.post(self,c,b,raw,pw_hash,pw_ok):return
     if self.path=='/api/login':
-     email=str(b.get('email','')).strip().lower();key=self.client_address[0]+':'+email;now=time.time();a=c.execute('SELECT * FROM attempts WHERE key=?',(key,)).fetchone()
+     email=str(b.get('email','')).strip().lower()
+     if len(str(b.get('password','')))>256 or len(email)>254:raise ValueError('Invalid sign-in details.')
+     key=self.client_address[0]+':'+email;now=time.time();a=c.execute('SELECT * FROM attempts WHERE key=?',(key,)).fetchone()
      if a and a['until']>now and a['count']>=8:return self.send(429,{'error':'Too many attempts. Try again in 15 minutes.'})
      u=c.execute('SELECT * FROM users WHERE email=? AND active=1',(email,)).fetchone()
-     if not u or not pw_ok(str(b.get('password','')),u['password']):
+     if not u or not pw_ok(str(b.get('password','')),u['password']) or (is_owner(u) and not auth_security.verify_totp(str(b.get('otp','')))):
       count=a['count']+1 if a and a['until']>now else 1;c.execute('INSERT OR REPLACE INTO attempts VALUES(?,?,?)',(key,count,now+900));return self.send(401,{'error':'Email or password is incorrect.'})
      c.execute('DELETE FROM attempts WHERE key=?',(key,));token=secrets.token_urlsafe(32);csrf=secrets.token_urlsafe(32);c.execute('INSERT INTO sessions VALUES(?,?,?,?)',(hashlib.sha256(token.encode()).hexdigest(),u['id'],csrf,now+28800));audit(c,u['id'],'Signed in',u['id'])
-     return self.send(200,{'user':public(u),'csrf':csrf},{'Set-Cookie':COOKIE+'='+token+'; HttpOnly; SameSite=Lax; Path=/; Max-Age=28800'+('; Secure' if os.environ.get('HQ_SECURE_COOKIE')=='1' else '')})
+     return self.send(200,{'user':public(u,c),'csrf':csrf},{'Set-Cookie':COOKIE+'='+token+'; HttpOnly; SameSite=Lax; Path=/; Max-Age=28800'+('; Secure' if os.environ.get('HQ_SECURE_COOKIE')=='1' else '')})
     if self.path=='/api/accept-invite':
      token=hashlib.sha256(str(b.get('token','')).encode()).hexdigest();i=c.execute('SELECT * FROM invitations WHERE token=? AND used=0 AND expires>?',(token,time.time())).fetchone()
      if not i:raise ValueError('Invitation is invalid or expired.')
      name=str(b.get('name','')).strip();password=str(b.get('password',''))
-     if not name or len(name)>100 or len(password)<12:raise ValueError('Enter your name and a password of at least 12 characters.')
+     if not name or len(name)>100 or not 12<=len(password)<=256:raise ValueError('Enter your name and a password of at least 12 characters.')
      uid=secrets.token_hex(12);c.execute('INSERT INTO users VALUES(?,?,?,?,?,?,1)',(uid,name,i['email'],pw_hash(password),i['role'],i['department']));c.execute('UPDATE invitations SET used=1 WHERE token=?',(token,));audit(c,uid,'Accepted invitation',i['department']);return self.send(201,{'ok':True})
     u,s=self.user(c)
     if not u:return self.send(401,{'error':'Sign in to continue.'})
@@ -121,7 +142,9 @@ class Handler(BaseHTTPRequestHandler):
      email=str(b.get('email','')).strip().lower();role=b.get('role');dept=b.get('department')
      if '@' not in email or len(email)>254 or role not in ROLES or dept not in DEPTS:raise ValueError('Enter a valid email, role and department.')
      if c.execute('SELECT 1 FROM users WHERE email=?',(email,)).fetchone():raise ValueError('This staff account already exists.')
-     token=secrets.token_urlsafe(32);c.execute('INSERT INTO invitations VALUES(?,?,?,?,?,0)',(hashlib.sha256(token.encode()).hexdigest(),email,role,dept,time.time()+172800));audit(c,u['id'],'Created staff invitation',email);return self.send(201,{'token':token,'expires':'48 hours'})
+     token=secrets.token_urlsafe(32);c.execute('INSERT INTO invitations VALUES(?,?,?,?,?,0)',(hashlib.sha256(token.encode()).hexdigest(),email,role,dept,time.time()+172800));audit(c,u['id'],'Created staff invitation',email)
+     if account_mail.enabled():account_mail.queue(c,email,'DigitalBurj staff invitation','Accept your single-use invitation within 48 hours: '+integrations.base()+'/?invite='+token)
+     return self.send(201,{'token':token,'expires':'48 hours'})
     if self.path=='/api/staff':
      if not is_owner(u):return self.send(403,{'error':'Only the HQ owner can change staff access.'})
      uid=b.get('id');active=1 if b.get('active') else 0
@@ -136,8 +159,10 @@ class Handler(BaseHTTPRequestHandler):
      c.execute('UPDATE users SET active=?,role=?,department=? WHERE id=?',(active,role,department,uid));c.execute('DELETE FROM sessions WHERE user_id=?',(uid,));audit(c,u['id'],'Changed staff access',uid);return self.send(200,{'ok':True})
     return self.send(404,{'error':'Not found'})
   except (ValueError,TypeError,json.JSONDecodeError) as e:self.send(400,{'error':str(e)})
-  except sqlite3.IntegrityError:self.send(409,{'error':'This record already exists or references an unavailable account.'})
-  except Exception:self.send(500,{'error':'Request failed. Contact your HQ administrator.'})
+  except Exception as e:
+   if database.integrity_error(e):return self.send(409,{'error':'This record already exists or references an unavailable account.'})
+   logging.error('HQ request failed: %s',type(e).__name__)
+   self.send(500,{'error':'Request failed. Contact your HQ administrator.'})
 if __name__=='__main__':
  p=argparse.ArgumentParser();p.add_argument('--port',type=int,default=8080);p.add_argument('--host',default='127.0.0.1');p.add_argument('--create-admin',action='store_true');a=p.parse_args();init()
  if a.create_admin:

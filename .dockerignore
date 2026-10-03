@@ -1,0 +1,12 @@
+.git
+.env
+.env.*
+!.env.example
+private
+owner_account.json
+*.sqlite3*
+__pycache__
+*.zip
+*.b64
+reference
+DigitalBurj_HQ_Preview.html

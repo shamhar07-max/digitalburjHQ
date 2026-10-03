@@ -90,7 +90,7 @@ def workspace(c,u,public):
  'audit':[dict(x) for x in c.execute('SELECT * FROM audit ORDER BY id DESC LIMIT 100')] if has(c,u,'audit.view') else [],
  'invitations':[dict(x) for x in c.execute('SELECT token AS id,email,role,department,expires FROM invitations WHERE used=0 AND expires>?',(time.time(),))] if owner(u) else [],
  'grants':[dict(x) for x in c.execute('SELECT * FROM grants ORDER BY created')] if owner(u) else permissions(c,u),'permission_catalog':PERMISSIONS,'job_kinds':KINDS,
- 'commission_policy':json.loads(c.execute('SELECT value FROM affiliate_policy WHERE id=1').fetchone()[0]),'google_meet_connected':__import__('integrations').google_connected()}
+ 'commission_policy':json.loads(c.execute('SELECT value FROM affiliate_policy WHERE id=1').fetchone()[0]),'google_meet_connected':__import__('integrations').google_connected(c)}
  result['unread_messages']=sum(x['recipient']==u['id'] and not x['read_at'] for x in message_rows);result['unread_notifications']=sum(not x['read_at'] for x in notifications)
  return result
 
@@ -100,9 +100,9 @@ def clean(b,key,maxlen=4000,required=True):
  if len(value)>maxlen:raise ValueError(key+' is too long.')
  return value
 
-def google_meet():
+def google_meet(c=None):
  import integrations
- token=integrations.google_token() or os.environ.get('GOOGLE_MEET_ACCESS_TOKEN')
+ token=integrations.google_token(c) or os.environ.get('GOOGLE_MEET_ACCESS_TOKEN')
  if not token:
   if not all(os.environ.get(k) for k in ['GOOGLE_CLIENT_ID','GOOGLE_CLIENT_SECRET','GOOGLE_REFRESH_TOKEN']):raise ValueError('Google Meet is not connected. Create a link in Google Meet and paste it into the meeting form.')
   payload=urllib.parse.urlencode({'client_id':os.environ['GOOGLE_CLIENT_ID'],'client_secret':os.environ['GOOGLE_CLIENT_SECRET'],'refresh_token':os.environ['GOOGLE_REFRESH_TOKEN'],'grant_type':'refresh_token'}).encode()
@@ -224,7 +224,7 @@ def post(h,c,u,b):
    target=c.execute('SELECT * FROM users WHERE id=? AND active=1',(person,)).fetchone()
    if not target or (not owner(u) and target['department']!=dept and target['email']!=OWNER):return deny('Participant is outside this meeting workspace.')
   url=clean(b,'url',500,False)
-  if b.get('create_google'):url=google_meet()
+  if b.get('create_google'):url=google_meet(c)
   if not re.fullmatch(r'https://meet\.google\.com/[a-z]{3}-[a-z]{4}-[a-z]{3}',url):raise ValueError('Paste a valid Google Meet meeting link, such as https://meet.google.com/abc-defg-hij.')
   mid=uid();c.execute('INSERT INTO meetings VALUES(?,?,?,?,?,?,?,?,?,?)',(mid,title,dept,u['id'],start,end,url,'Scheduled',clean(b,'notes',4000,False),now()))
   for person in set(attendees+[u['id']]):c.execute('INSERT INTO meeting_members VALUES(?,?)',(mid,person));notify(c,person,'You have been invited to an HQ meeting.','meetings',mid)

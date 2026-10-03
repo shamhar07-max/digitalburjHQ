@@ -1,12 +1,13 @@
 # DigitalBurj Headquarters
 
-A full-stack internal workspace using the DigitalBurj homepage brand assets and shared component styles. Frontend: HTML/CSS/JavaScript. Backend: Python JSON API. Persistence: SQLite. No deployment has been performed.
+A full-stack internal workspace using the DigitalBurj homepage brand assets and shared component styles. Frontend: HTML/CSS/JavaScript. Backend: Python JSON API. Persistence: SQLite for local development; pooled Supabase/PostgreSQL for production. No deployment has been performed.
 
 ## Start locally
 
-Requires Python 3.12 or later; no application packages are needed.
+Requires Python 3.12 or later. Application dependencies are pinned with hashes in requirements.txt.
 
 ```bash
+pip install --require-hashes -r requirements.txt
 python3 server.py
 ```
 
@@ -63,7 +64,7 @@ A paid commission cannot be silently reversed; recovery accounting needs a docum
 
 You can create a genuine link in Google Meet, paste it into an HQ meeting, select staff participants, and use Join Google Meet. Calls run on Google Meet, not inside an HQ iframe.
 
-Automatic space creation is implemented as an optional server-side adapter. Configure either a user-authorized GOOGLE_MEET_ACCESS_TOKEN, or GOOGLE_CLIENT_ID + GOOGLE_CLIENT_SECRET + GOOGLE_REFRESH_TOKEN. The user authorization must include https://www.googleapis.com/auth/meetings.space.created and the Meet API must be enabled. The refresh-token option refreshes access before creating a space. The owner can now connect through Live integrations → Connect Google Meet. Set GOOGLE_CLIENT_ID, GOOGLE_CLIENT_SECRET and HQ_PUBLIC_URL; register HQ_PUBLIC_URL/api/google/callback in Google Cloud. The callback uses a single-use, session-bound state and stores the refresh token in a private, gitignored file. No Google authorization or live Meet API call was available during verification.
+Automatic space creation is implemented as an optional server-side adapter. Configure either a user-authorized GOOGLE_MEET_ACCESS_TOKEN, or GOOGLE_CLIENT_ID + GOOGLE_CLIENT_SECRET + GOOGLE_REFRESH_TOKEN. The user authorization must include https://www.googleapis.com/auth/meetings.space.created and the Meet API must be enabled. The refresh-token option refreshes access before creating a space. The owner can now connect through Live integrations → Connect Google Meet. Set GOOGLE_CLIENT_ID, GOOGLE_CLIENT_SECRET and HQ_PUBLIC_URL; register HQ_PUBLIC_URL/api/google/callback in Google Cloud. The callback uses a single-use, session-bound state and stores the refresh token encrypted in the private database. Configure HQ_TOKEN_ENCRYPTION_KEY. No Google authorization or live Meet API call was available during verification.
 
 Official API references:
 - https://developers.google.com/workspace/meet/api/reference/rest/v2/spaces/create
@@ -73,7 +74,7 @@ Official API references:
 
 This HQ is the staff workspace. Signed division event ingestion and scoped customer/learner/payment viewing are implemented. Stripe checkout and signed webhooks create payment and customer/learner fulfillment records. Destination Academy gradebooks and Business/Studio provisioning must still send events or consume these records; no remote tenant or learner access is fabricated. Academy session/assessment jobs track internal work; they are not a live LMS gradebook. Integration adapters must enforce HQ permissions and the destination application's authorization independently.
 
-The package does not contain an in-app video engine, automatic email invitations, file uploads, MFA or SSO. Knowledge resources can store references to externally managed evidence. The owner can reset another staff password locally through People → Manage; there is no forgotten-password email flow.
+The package does not contain an in-app video engine, file uploads or SSO. Production owner login requires TOTP MFA; SMTP enables invitation email, partner verification and recovery. Knowledge resources can store references to externally managed evidence. The owner can reset staff passwords through People → Manage. SMTP-backed verification and password recovery are now available at /account.html; the mail worker must be running.
 
 ## Design
 
@@ -100,7 +101,7 @@ Tests cover owner-only invitations against a second administrator, CSRF, passwor
 
 ## Later hosting
 
-Use a separate private HQ service (for example hq.digitalburj.com), HTTPS, persistent database storage and backups. Set HQ_SECURE_COOKIE=1 behind an HTTPS gateway that preserves Host. The bundled Python HTTP server is a working local reference server, not a hardened production serving stack. Add a production gateway, monitoring, backup/restore verification and appropriate identity protection before company-wide hosting. Source is prepared for digitalburjHQ. No hosting deployment has been performed.
+Use a separate private HQ service (for example hq.digitalburj.com), HTTPS, persistent database storage and backups. Set HQ_SECURE_COOKIE=1 behind an HTTPS gateway that preserves Host. The bundled Python HTTP server is a working local reference server, not a hardened production serving stack. Use the supplied Docker/Gunicorn production entry point behind an HTTPS gateway, with monitoring and verified backups before company-wide hosting. Source is prepared for digitalburjHQ. No hosting deployment has been performed.
 
 ## Live integration setup
 
@@ -110,8 +111,12 @@ The server reads process environment variables, not .env automatically. Never pu
 - **Stripe:** Set STRIPE_SECRET_KEY, STRIPE_WEBHOOK_SECRET, HQ_PUBLIC_URL and HQ_PRODUCT_CATALOG. The catalog maps Business/Academy/Studio to a display name and integer eligible AED net_cents. Hosted checkout uses one-time payments; recurring billing is not enabled. Subscribe the endpoint `/api/stripe/webhook` to checkout.session.completed, checkout.session.async_payment_succeeded and charge.refunded. The signature is checked against the raw body with a five-minute tolerance. Order amounts must match the server catalog; repeated events cannot duplicate fulfillment. Customer/learner records await actual division provisioning. Full or partial refunds cancel unpaid commission conservatively; already paid commissions require finance recovery.
 - **Division services:** POST `/api/division/events` with department (Academy, Business OS or Studio), kind (learner, customer or payment), event_id, external_id and a data object. Sign the exact raw JSON with that division's webhook secret. Header X-DB-Timestamp is a Unix timestamp. X-DB-Signature is lowercase hex HMAC-SHA256(secret, timestamp + '.' + raw_body). Five-minute tolerance and event-id deduplication apply. A changed payload under the same event ID returns409. Data is visible only with the corresponding customer/learner/payment grant and department/record scope. Assigned scopes do not apply to these externally sourced records. Division payment events are records, not commission/payment verification; only Stripe signed checkout events or verified staff entries create commissions.
 
-Partner accounts never become staff accounts. Applicants require owner/staff approval and product training. The portal has no email verification or forgotten-password mail service yet; do not open public enrollment at scale before adding an email provider, abuse controls and an account recovery process.
+Partner accounts never become staff accounts. Applicants require owner/staff approval and product training. The portal supports email verification and password recovery through SMTP. Configure the provider and mail worker before opening production enrollment.
 
 Official integration references: https://developers.google.com/identity/protocols/oauth2/web-server and https://docs.stripe.com/webhooks
 
 Run all backend tests: `python3 -m unittest test_hq.py test_integrations.py -v`. These use signed fixtures, not live service credentials.
+
+## Production PostgreSQL
+
+See [PRODUCTION_SETUP.md](PRODUCTION_SETUP.md) for the exact credential list, private Supabase schema setup, restricted application database role, Docker/Gunicorn hosting, encrypted token storage, SMTP worker, owner MFA, migration/import and backup verification. No Supabase project or live deployment has been created.

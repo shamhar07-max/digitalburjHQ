@@ -48,8 +48,9 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           TAG: android-build-${{ github.run_number }}
         run: |
-          cp out/release/*.apk DigitalBurj-HQ.apk
-          cp out/debug/*.apk DigitalBurj-HQ-debug.apk
+          find out -type f | sort
+          cp "$(find out -type f -name '*release*.apk' | head -n1)" DigitalBurj-HQ.apk
+          cp "$(find out -type f -name '*debug*.apk' | head -n1)" DigitalBurj-HQ-debug.apk
           gh release create "$TAG" --repo "$GITHUB_REPOSITORY" --target "$GITHUB_SHA" \
             --title "DigitalBurj HQ for Android (build ${{ github.run_number }})" \
             --notes "Install DigitalBurj-HQ.apk on an Android phone (allow installs from this source when asked). DigitalBurj-HQ-debug.apk is a test build that installs alongside it. Release builds are signed with the debug key until a Play Store keystore is configured." \

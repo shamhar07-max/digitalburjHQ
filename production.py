@@ -36,6 +36,8 @@ def create_app():
  @app.before_request
  def host_check():
   configured=os.environ.get('HQ_PUBLIC_URL')
+  # Railway's health probe sends its own Host header; /healthz returns no data, so allow only that pairing.
+  if request.path=='/healthz' and request.host=='healthcheck.railway.app':return None
   if configured and request.host!=urllib.parse.urlsplit(configured).netloc:return Response('Invalid host',status=400)
  @app.route('/',defaults={'path':''},methods=['GET','POST'])
  @app.route('/<path:path>',methods=['GET','POST'])

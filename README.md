@@ -119,4 +119,4 @@ Run all backend tests: `python3 -m unittest test_hq.py test_integrations.py -v`.
 
 ## Production PostgreSQL
 
-See [PRODUCTION_SETUP.md](PRODUCTION_SETUP.md) for the exact credential list, private Supabase schema setup, restricted application database role, Docker/Gunicorn hosting, encrypted token storage, SMTP worker, owner MFA, migration/import and backup verification. No Supabase project or live deployment has been created.
+Railway + Cloudflare R2 runbook: [DEPLOY_RAILWAY.md](DEPLOY_RAILWAY.md). See [PRODUCTION_SETUP.md](PRODUCTION_SETUP.md) for the exact credential list, private Supabase schema setup, restricted application database role, Docker/Gunicorn hosting, encrypted token storage, SMTP worker, owner MFA, migration/import and backup verification. No Supabase project or live deployment has been created.

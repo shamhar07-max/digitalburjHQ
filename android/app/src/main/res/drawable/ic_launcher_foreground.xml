@@ -1,0 +1,31 @@
+<?xml version="1.0" encoding="utf-8"?>
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+    <!-- The 512-unit brand mark scaled into the adaptive-icon safe zone (centre 66dp). -->
+    <group
+        android:scaleX="0.145"
+        android:scaleY="0.145"
+        android:translateX="16.9"
+        android:translateY="19.1">
+        <path
+            android:pathData="M196,150a112,112 0,1 0,0 212"
+            android:strokeColor="#14110F"
+            android:strokeWidth="30" />
+        <path
+            android:pathData="M330,150a112,112 0,0 1,0 212"
+            android:strokeColor="#14110F"
+            android:strokeWidth="30" />
+        <path
+            android:fillColor="#E5391F"
+            android:pathData="M214,392V250l30,-26v168z" />
+        <path
+            android:fillColor="#E5391F"
+            android:pathData="M262,392V190l30,-34v236z" />
+        <path
+            android:fillColor="#E5391F"
+            android:pathData="M310,392V120l30,-30v302z" />
+    </group>
+</vector>

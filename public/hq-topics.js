@@ -180,3 +180,14 @@ let installPrompt = null;
 window.addEventListener('beforeinstallprompt', e => { e.preventDefault(); installPrompt = e; $$('[data-act=install]').forEach(b => { b.hidden = false; }); });
 window.addEventListener('appinstalled', () => { installPrompt = null; $$('[data-act=install]').forEach(b => { b.hidden = true; }); toast('HQ is installed on this device.'); });
 function installApp() { if (installPrompt) { installPrompt.prompt(); installPrompt = null; } }
+
+/* Native shells (the Android app) call this for the system back button. Returns true when HQ handled it. */
+window.hqBack = () => {
+  const dlg = document.querySelector('dialog[open]');
+  if (dlg) { dlg.close(); return true; }
+  if (typeof Files !== 'undefined' && document.querySelector('.drawer')) { Files.closeDrawer(); return true; }
+  if (typeof Chat !== 'undefined' && page === 'messages' && Chat.active) { $('[data-act=back]')?.click(); return true; }
+  if (page === 'discussions' && $('[data-back]')) { $('[data-back]').click(); return true; }
+  if (user && page !== 'overview') { goPage('overview'); return true; }
+  return false;
+};

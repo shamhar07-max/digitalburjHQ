@@ -1,0 +1,5 @@
+<resources>
+    <string name="app_name">DigitalBurj HQ</string>
+    <string name="downloading">Downloading…</string>
+    <string name="no_app_for_link">No app can open this link.</string>
+</resources>

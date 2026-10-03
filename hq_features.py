@@ -60,6 +60,7 @@ def affiliate_allowed(c,u,p,a):return bool(a and has(c,u,p,'Growth',a['id'],a['o
 def notification_allowed(c,u,n):
  if not any_permission(c,u,'notifications.view'):return False
  resource=n['resource'];rid=n['record_id']
+ if resource in ('chat','topics','files'):return __import__('hq_collab').notification_allowed(c,u,n)
  if resource=='tasks':return row_permission(c,u,'tasks.view',c.execute('SELECT * FROM tasks WHERE id=?',(rid,)).fetchone())
  if resource=='reviews':return row_permission(c,u,'reviews.view',c.execute('SELECT * FROM reviews WHERE id=?',(rid,)).fetchone())
  if resource=='meetings':
@@ -140,7 +141,7 @@ def post(h,c,u,b):
    if not isinstance(g,dict) or g.get('permission') not in PERMISSIONS or g.get('scope_type') not in ['assigned','department','record','all']:raise ValueError('Invalid permission or scope.')
    if g['scope_type']=='department' and g.get('scope_id') not in DEPTS:raise ValueError('Choose a valid department.')
    if g['scope_type']=='record' and not g.get('scope_id'):raise ValueError('Select a specific record ID.')
-   if g['permission'] in ['tasks.create','reviews.submit','meetings.create','announcements.publish','resources.manage'] and g['scope_type'] in ['assigned','record']:raise ValueError('Creation permissions require a department or all scope.')
+   if g['permission'] in ['tasks.create','reviews.submit','meetings.create','announcements.publish','resources.manage','files.upload','files.manage'] and g['scope_type'] in ['assigned','record']:raise ValueError('Creation permissions require a department or all scope.')
   c.execute('DELETE FROM grants WHERE user_id=?',(target['id'],))
   for g in grants:c.execute('INSERT INTO grants VALUES(?,?,?,?,?,?)',(uid(),target['id'],g['permission'],g['scope_type'],str(g.get('scope_id',''))[:100],now()))
   audit(c,u,'Updated granular permissions',target['email']);notify(c,target['id'],'Your access assignments were updated.');return ok()

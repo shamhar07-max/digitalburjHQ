@@ -26,11 +26,12 @@ class PostgresConnection:
  def __init__(self,pool,schema):
   self.pool=pool;self.raw=pool.getconn();self.schema=schema
   try:
-   self.raw.execute('SET LOCAL search_path TO '+schema)
-   self.raw.execute("SET LOCAL statement_timeout TO '15000ms'")
-   self.raw.execute("SET LOCAL lock_timeout TO '10000ms'")
+   self.setup()
   except Exception:
    self.raw.close();self.pool.putconn(self.raw);self.raw=None;raise
+ def setup(self):
+  # One round trip: transaction-local settings equivalent to SET LOCAL search_path / statement_timeout / lock_timeout.
+  self.raw.execute("SELECT set_config('search_path',%s,true),set_config('statement_timeout','15000ms',true),set_config('lock_timeout','10000ms',true)",(self.schema,))
  def __enter__(self):return self
  def __exit__(self,typ,value,tb):
   try:
@@ -43,9 +44,9 @@ class PostgresConnection:
   if self.raw is not None:
    self.pool.putconn(self.raw);self.raw=None
  def commit(self):
-  self.raw.commit();self.raw.execute('SET LOCAL search_path TO '+self.schema)
+  self.raw.commit();self.setup()
  def rollback(self):
-  self.raw.rollback();self.raw.execute('SET LOCAL search_path TO '+self.schema)
+  self.raw.rollback();self.setup()
  def execute(self,query,params=()):
   if query.startswith('PRAGMA table_info('):
    table=query.split('(',1)[1].split(')',1)[0]

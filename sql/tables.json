@@ -27,5 +27,16 @@
   "schema_version",
   "service_tokens",
   "account_tokens",
-  "mail_outbox"
+  "mail_outbox",
+  "channels",
+  "channel_members",
+  "chat_messages",
+  "chat_reactions",
+  "presence",
+  "folders",
+  "files",
+  "file_shares",
+  "file_comments",
+  "topics",
+  "topic_replies"
 ]

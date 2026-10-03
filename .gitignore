@@ -1,0 +1,9 @@
+*.sqlite3
+*.sqlite3-*
+__pycache__/
+.env
+
+owner_account.json
+private/
+.env.*
+!.env.example

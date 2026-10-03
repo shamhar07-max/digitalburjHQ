@@ -1,0 +1,21 @@
+const assert=require('node:assert/strict'),fs=require('node:fs');
+const {JSDOM,VirtualConsole}=require(process.env.HQ_JSDOM_PATH||'jsdom');
+const errors=[];const vc=new VirtualConsole();vc.on('jsdomError',e=>errors.push(e.message));
+const dom=new JSDOM(fs.readFileSync('DigitalBurj_HQ_Preview.html','utf8'),{url:'https://hq-preview.invalid/',runScripts:'dangerously',virtualConsole:vc,beforeParse(w){w.structuredClone=structuredClone;w.HTMLDialogElement.prototype.showModal=function(){this.open=true};w.HTMLDialogElement.prototype.close=function(){this.open=false}}});
+const w=dom.window,d=w.document,settle=()=>new Promise(r=>setTimeout(r,20));
+const click=sel=>{const el=d.querySelector(sel);assert.ok(el,`Missing ${sel}`);el.click()};
+const submit=()=>d.querySelector('#dialog-form').dispatchEvent(new w.Event('submit',{bubbles:true,cancelable:true}));
+(async()=>{
+ await settle();assert.ok(d.querySelector('.banner').textContent.includes('One headquarters'));
+ for(const page of ['tasks','reviews','departments','staff','announcements','audit','settings','overview']){click(`[data-page="${page}"]`);assert.ok(d.querySelector('main'))}
+ click('[data-page="tasks"]');click('[data-action="new-task"]');d.querySelector('#f-title').value='UI verified task';d.querySelector('#f-description').value='Acceptance criteria';d.querySelector('#f-owner').value='u3';submit();await settle();assert.ok(d.querySelector('.board').textContent.includes('UI verified task'));
+ let task=[...d.querySelectorAll('.task')].find(t=>t.textContent.includes('UI verified task'));let select=task.querySelector('select');select.value='Review';select.dispatchEvent(new w.Event('change'));await settle();assert.ok(d.querySelector('.column:nth-child(3)').textContent.includes('UI verified task'));
+ click('[data-page="reviews"]');click('[data-action="new-review"]');d.querySelector('#f-title').value='UI test review';d.querySelector('#f-description').value='Review context';submit();await settle();assert.ok(d.querySelector('main').textContent.includes('UI test review'));
+ let review=[...d.querySelectorAll('.row')].find(t=>t.textContent.includes('UI test review'));review.querySelector('[data-review]').click();d.querySelector('#f-status').value='Changes requested';d.querySelector('#f-feedback').value='Add acceptance evidence';submit();await settle();assert.ok(d.querySelector('main').textContent.includes('Add acceptance evidence'));
+ click('[data-page="announcements"]');click('[data-action="announce"]');d.querySelector('#f-title').value='UI team update';d.querySelector('#f-body').value='This message is saved in the preview.';submit();await settle();assert.ok(d.querySelector('main').textContent.includes('UI team update'));
+ click('[data-page="staff"]');assert.ok(d.querySelector('[data-action="invite"]'));click('[data-manage="u4"]');d.querySelector('#f-role').value='manager';submit();await settle();assert.ok(d.querySelector('main').textContent.includes('Department manager'));
+ const role=d.querySelector('#preview-role');role.value='u2';role.dispatchEvent(new w.Event('change'));await settle();assert.equal(d.querySelector('[data-page="staff"]'),null);assert.equal(d.querySelector('[data-action="invite"]'),null);assert.equal(d.querySelector('[data-page="audit"]'),null);
+ click('[data-page="tasks"]');assert.ok(d.querySelector('main').textContent.includes('Assess learner project evidence'));assert.ok(!d.querySelector('main').textContent.includes('Review the CRM enquiry workflow'));
+ w.eval("user={id:'other',name:'Other Admin',email:'other@example.invalid',role:'admin',department:'Studio',active:1,can_invite:false};page='overview';refresh()");await settle();assert.equal(d.querySelector('[data-action="invite"]'),null);assert.equal(d.querySelector('[data-manage]'),null);
+ assert.deepEqual(errors,[]);console.log('PASS: all navigation, task creation/status, review feedback, announcements, staff management, department filtering and owner-only UI controls.');dom.window.close();
+})().catch(e=>{console.error(e);process.exitCode=1;dom.window.close()});

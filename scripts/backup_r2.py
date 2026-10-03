@@ -9,87 +9,44 @@ The dump runs as the restricted application role (read access via its RLS polici
 so no administrative credential is needed. Dumps are Fernet-encrypted with HQ_BACKUP_KEY
 before leaving the host. Standard library only; requests are AWS SigV4 signed.
 """
-import argparse, datetime, hashlib, hmac, os, subprocess, sys, tempfile, urllib.error, urllib.parse, urllib.request
-import xml.etree.ElementTree as ET
+import argparse, datetime, os, pathlib, subprocess, sys, tempfile
 
-REGION = 'auto'
-SERVICE = 's3'
+sys.path.insert(0, str(pathlib.Path(__file__).resolve().parents[1]))
+from r2 import R2 as _R2, StorageError, sign  # noqa: F401  (sign re-exported for tests)
+
 PREFIX = 'hq-backups/'
 
 
-def _hmac(key, msg):
-    return hmac.new(key, msg.encode(), hashlib.sha256).digest()
+class _Bucket:
+    """Backup view of the bucket: fixed prefix, storage errors become process exits."""
 
-
-def sign(method, host, path, query, headers, payload_hash, access_key, secret_key, amz_date, region=REGION, service=SERVICE):
-    """Return the Authorization header value for an AWS Signature Version 4 request."""
-    date = amz_date[:8]
-    headers = {k.lower(): str(v).strip() for k, v in headers.items()}
-    headers['host'] = host
-    headers['x-amz-date'] = amz_date
-    headers['x-amz-content-sha256'] = payload_hash
-    signed = ';'.join(sorted(headers))
-    canonical_headers = ''.join(f'{k}:{headers[k]}\n' for k in sorted(headers))
-    canonical_query = '&'.join(
-        f'{urllib.parse.quote(k, safe="-_.~")}={urllib.parse.quote(v, safe="-_.~")}' for k, v in sorted(query.items()))
-    canonical = '\n'.join([method, urllib.parse.quote(path, safe='/-_.~'), canonical_query, canonical_headers, signed, payload_hash])
-    scope = f'{date}/{region}/{service}/aws4_request'
-    to_sign = '\n'.join(['AWS4-HMAC-SHA256', amz_date, scope, hashlib.sha256(canonical.encode()).hexdigest()])
-    key = _hmac(_hmac(_hmac(_hmac(('AWS4' + secret_key).encode(), date), region), service), 'aws4_request')
-    signature = hmac.new(key, to_sign.encode(), hashlib.sha256).hexdigest()
-    return f'AWS4-HMAC-SHA256 Credential={access_key}/{scope}, SignedHeaders={signed}, Signature={signature}'
-
-
-class R2:
     def __init__(self):
         try:
-            self.account = os.environ['R2_ACCOUNT_ID']
-            self.bucket = os.environ['R2_BUCKET']
-            self.access = os.environ['R2_ACCESS_KEY_ID']
-            self.secret = os.environ['R2_SECRET_ACCESS_KEY']
-        except KeyError as e:
-            raise SystemExit(f'Missing environment variable {e.args[0]}')
-        self.host = f'{self.account}.r2.cloudflarestorage.com'
+            self.r2 = _R2.from_env('R2_BUCKET')
+        except StorageError as e:
+            raise SystemExit(str(e))
 
-    def request(self, method, key='', query=None, body=b''):
-        query = query or {}
-        path = '/' + self.bucket + ('/' + key if key else '')
-        payload_hash = hashlib.sha256(body).hexdigest()
-        amz_date = datetime.datetime.now(datetime.timezone.utc).strftime('%Y%m%dT%H%M%SZ')
-        auth = sign(method, self.host, path, query, {}, payload_hash, self.access, self.secret, amz_date)
-        url = f'https://{self.host}{urllib.parse.quote(path, safe="/-_.~")}'
-        if query:
-            url += '?' + urllib.parse.urlencode(sorted(query.items()), quote_via=urllib.parse.quote, safe='-_.~')
-        req = urllib.request.Request(url, data=body if method in ('PUT', 'POST') else None, method=method, headers={
-            'x-amz-date': amz_date, 'x-amz-content-sha256': payload_hash, 'Authorization': auth})
+    def _call(self, name, *args):
         try:
-            with urllib.request.urlopen(req, timeout=120) as r:
-                return r.read()
-        except urllib.error.HTTPError as e:
-            raise SystemExit(f'R2 {method} failed with HTTP {e.code}')
+            return getattr(self.r2, name)(*args)
+        except StorageError as e:
+            raise SystemExit(str(e))
 
     def put(self, key, data):
-        self.request('PUT', key, body=data)
+        self._call('put', key, data)
 
     def get(self, key):
-        return self.request('GET', key)
+        return self._call('get', key)
 
     def delete(self, key):
-        self.request('DELETE', key)
+        self._call('delete', key)
 
     def list(self):
-        items, token = [], None
-        while True:
-            q = {'list-type': '2', 'prefix': PREFIX}
-            if token:
-                q['continuation-token'] = token
-            root = ET.fromstring(self.request('GET', '', q))
-            ns = {'s': root.tag.split('}')[0].strip('{')}
-            for c in root.findall('s:Contents', ns):
-                items.append((c.find('s:Key', ns).text, c.find('s:LastModified', ns).text))
-            if root.findtext('s:IsTruncated', namespaces=ns) != 'true':
-                return sorted(items)
-            token = root.findtext('s:NextContinuationToken', namespaces=ns)
+        return self._call('list', PREFIX)
+
+
+def R2():
+    return _Bucket()
 
 
 def fernet():

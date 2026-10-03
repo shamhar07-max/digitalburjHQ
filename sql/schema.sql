@@ -71,3 +71,32 @@ CREATE TABLE IF NOT EXISTS mail_outbox(id TEXT PRIMARY KEY,recipient TEXT,encryp
 ALTER TABLE account_tokens ENABLE ROW LEVEL SECURITY;
 ALTER TABLE mail_outbox ENABLE ROW LEVEL SECURITY;
 REVOKE ALL ON account_tokens,mail_outbox FROM PUBLIC;
+
+-- Collaboration: chat, document vault, discussions
+ CREATE TABLE IF NOT EXISTS channels(id TEXT PRIMARY KEY,kind TEXT NOT NULL,name TEXT NOT NULL,department TEXT NOT NULL DEFAULT '',created_by TEXT,created TEXT NOT NULL);
+ CREATE TABLE IF NOT EXISTS channel_members(channel_id TEXT NOT NULL REFERENCES channels(id),user_id TEXT NOT NULL REFERENCES users(id),last_read TEXT NOT NULL DEFAULT '',PRIMARY KEY(channel_id,user_id));
+ CREATE TABLE IF NOT EXISTS chat_messages(id TEXT PRIMARY KEY,channel_id TEXT NOT NULL REFERENCES channels(id),sender TEXT NOT NULL REFERENCES users(id),body TEXT NOT NULL,reply_to TEXT,file_id TEXT,created TEXT NOT NULL,updated TEXT NOT NULL,edited INTEGER NOT NULL DEFAULT 0,deleted INTEGER NOT NULL DEFAULT 0,pinned INTEGER NOT NULL DEFAULT 0);
+ CREATE INDEX IF NOT EXISTS chat_channel_updated ON chat_messages(channel_id,updated);
+ CREATE INDEX IF NOT EXISTS chat_channel_created ON chat_messages(channel_id,created);
+ CREATE TABLE IF NOT EXISTS chat_reactions(message_id TEXT NOT NULL REFERENCES chat_messages(id),user_id TEXT NOT NULL REFERENCES users(id),emoji TEXT NOT NULL,PRIMARY KEY(message_id,user_id,emoji));
+ CREATE TABLE IF NOT EXISTS presence(user_id TEXT PRIMARY KEY REFERENCES users(id),seen DOUBLE PRECISION NOT NULL,typing_channel TEXT NOT NULL DEFAULT '',typing_until DOUBLE PRECISION NOT NULL DEFAULT 0);
+ CREATE TABLE IF NOT EXISTS folders(id TEXT PRIMARY KEY,scope TEXT NOT NULL,department TEXT NOT NULL DEFAULT '',owner TEXT REFERENCES users(id),parent_id TEXT,name TEXT NOT NULL,created TEXT NOT NULL);
+ CREATE TABLE IF NOT EXISTS files(id TEXT PRIMARY KEY,scope TEXT NOT NULL,department TEXT NOT NULL DEFAULT '',owner TEXT NOT NULL REFERENCES users(id),folder_id TEXT,name TEXT NOT NULL,mime TEXT NOT NULL,size INTEGER NOT NULL,sha256 TEXT NOT NULL,r2_key TEXT NOT NULL,description TEXT NOT NULL DEFAULT '',pinned INTEGER NOT NULL DEFAULT 0,created TEXT NOT NULL,updated TEXT NOT NULL,deleted_at TEXT);
+ CREATE INDEX IF NOT EXISTS files_scope ON files(scope,department,folder_id);
+ CREATE TABLE IF NOT EXISTS file_shares(file_id TEXT NOT NULL REFERENCES files(id),user_id TEXT NOT NULL REFERENCES users(id),created TEXT NOT NULL,PRIMARY KEY(file_id,user_id));
+ CREATE TABLE IF NOT EXISTS file_comments(id TEXT PRIMARY KEY,file_id TEXT NOT NULL REFERENCES files(id),author TEXT NOT NULL REFERENCES users(id),body TEXT NOT NULL,created TEXT NOT NULL);
+ CREATE TABLE IF NOT EXISTS topics(id TEXT PRIMARY KEY,department TEXT NOT NULL,title TEXT NOT NULL,body TEXT NOT NULL,author TEXT NOT NULL REFERENCES users(id),category TEXT NOT NULL DEFAULT 'General',pinned INTEGER NOT NULL DEFAULT 0,status TEXT NOT NULL DEFAULT 'Open',created TEXT NOT NULL,updated TEXT NOT NULL);
+ CREATE TABLE IF NOT EXISTS topic_replies(id TEXT PRIMARY KEY,topic_id TEXT NOT NULL REFERENCES topics(id),author TEXT NOT NULL REFERENCES users(id),body TEXT NOT NULL,created TEXT NOT NULL);
+ 
+ALTER TABLE channels ENABLE ROW LEVEL SECURITY;
+ALTER TABLE channel_members ENABLE ROW LEVEL SECURITY;
+ALTER TABLE chat_messages ENABLE ROW LEVEL SECURITY;
+ALTER TABLE chat_reactions ENABLE ROW LEVEL SECURITY;
+ALTER TABLE presence ENABLE ROW LEVEL SECURITY;
+ALTER TABLE folders ENABLE ROW LEVEL SECURITY;
+ALTER TABLE files ENABLE ROW LEVEL SECURITY;
+ALTER TABLE file_shares ENABLE ROW LEVEL SECURITY;
+ALTER TABLE file_comments ENABLE ROW LEVEL SECURITY;
+ALTER TABLE topics ENABLE ROW LEVEL SECURITY;
+ALTER TABLE topic_replies ENABLE ROW LEVEL SECURITY;
+REVOKE ALL ON channels,channel_members,chat_messages,chat_reactions,presence,folders,files,file_shares,file_comments,topics,topic_replies FROM PUBLIC;

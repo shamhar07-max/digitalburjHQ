@@ -7,6 +7,8 @@ import integrations
 import database
 import account_mail
 import auth_security
+import hq_collab as collab
+import r2
 import logging
 ROOT=pathlib.Path(__file__).parent
 DB=pathlib.Path(os.environ.get('HQ_DB',str(ROOT/'hq.sqlite3')))
@@ -46,7 +48,7 @@ def init():
  CREATE TABLE IF NOT EXISTS attempts(key TEXT PRIMARY KEY,count INTEGER,until REAL);
  ''')
  with connection() as c:
-  if not c.is_postgres:features.init(c);integrations.init(c);account_mail.init(c)
+  if not c.is_postgres:features.init(c);integrations.init(c);account_mail.init(c);collab.init(c)
   else:integrations.register_permissions()
  if BOOTSTRAP.is_file():
   b=json.loads(BOOTSTRAP.read_text())
@@ -82,6 +84,9 @@ class Handler(BaseHTTPRequestHandler):
     try:
      if integrations.get(self,c,u,s):return
     except ValueError as e:return self.send(400,{'error':str(e)})
+    try:
+     if collab.get(self,c,u):return
+    except (ValueError,TypeError) as e:return self.send(400,{'error':str(e)})
     if not u:return self.send(401,{'error':'Sign in to continue.'})
     if self.path=='/api/me':return self.send(200,{'user':public(u,c),'csrf':s['csrf']})
     if self.path!='/api/workspace':return self.send(404,{'error':'Not found'})
@@ -90,9 +95,29 @@ class Handler(BaseHTTPRequestHandler):
   try:p=p.resolve();p.relative_to((ROOT/'public').resolve())
   except ValueError:return self.send(403)
   if not p.is_file():return self.send(404)
-  self.send_response(200);self.send_header('Content-Type',mimetypes.guess_type(str(p))[0] or 'application/octet-stream');self.send_header('X-Content-Type-Options','nosniff');self.send_header('X-Frame-Options','DENY');self.send_header('Referrer-Policy','same-origin');self.send_header('Content-Security-Policy',"default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data:; font-src 'self'; connect-src 'self'; frame-ancestors 'none'; base-uri 'self'; form-action 'self'");self.end_headers();self.wfile.write(p.read_bytes())
+  self.send_response(200);self.send_header('Content-Type',mimetypes.guess_type(str(p))[0] or 'application/octet-stream');self.send_header('X-Content-Type-Options','nosniff');self.send_header('X-Frame-Options','DENY');self.send_header('Referrer-Policy','same-origin');self.send_header('Content-Security-Policy',"default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data: https://*.r2.cloudflarestorage.com; font-src 'self'; connect-src 'self'; frame-src 'self' https://*.r2.cloudflarestorage.com; manifest-src 'self'; worker-src 'self'; frame-ancestors 'none'; base-uri 'self'; form-action 'self'");self.end_headers();self.wfile.write(p.read_bytes())
+ def upload(self):
+  """Raw-body file upload. Storage I/O runs outside any database transaction or global write lock."""
+  length=int(self.headers.get('Content-Length',0))
+  if length>collab.MAX_UPLOAD:return self.send(413,{'error':'Files can be at most %d MB.'%(collab.MAX_UPLOAD//1048576)})
+  if self.headers.get('Origin') and self.headers['Origin']!=('https://' if os.environ.get('HQ_SECURE_COOKIE')=='1' else 'http://')+self.headers.get('Host',''):return self.send(403,{'error':'Origin rejected'})
+  with connection() as c:
+   u,s=self.user(c)
+   if not u:return self.send(401,{'error':'Sign in to continue.'})
+   if not hmac.compare_digest(self.headers.get('X-CSRF-Token',''),s['csrf']):return self.send(403,{'error':'Session validation failed. Reload and try again.'})
+   plan=collab.plan_upload(c,u,length,collab.query(self))
+  data=self.rfile.read(length);collab.check_content(plan,data)
+  store=r2.files_store();key='files/'+collab.uid();store.put(key,data,plan['mime'])
+  try:
+   with connection() as c:meta=collab.record_upload(c,u,plan,key,data)
+  except Exception:
+   try:store.delete(key)
+   except r2.StorageError:pass
+   raise
+  return self.send(201,meta)
  def do_POST(self):
   try:
+   if self.path.split('?')[0]=='/api/files/upload':return self.upload()
    if int(self.headers.get('Content-Length',0))>32768:return self.send(413)
    if self.headers.get('Origin') and self.headers['Origin']!=('https://' if os.environ.get('HQ_SECURE_COOKIE')=='1' else 'http://')+self.headers.get('Host',''):return self.send(403,{'error':'Origin rejected'})
    raw=self.rfile.read(int(self.headers.get('Content-Length',0)))
@@ -125,6 +150,7 @@ class Handler(BaseHTTPRequestHandler):
     if not hmac.compare_digest(self.headers.get('X-CSRF-Token',''),s['csrf']):return self.send(403,{'error':'Session validation failed. Reload and try again.'})
     if integrations.owner_post(self,c,u,b):return
     if features.post(self,c,u,b):return
+    if collab.post(self,c,u,b):return
     admin=is_owner(u);manager=admin;dept=str(b.get('department',u['department']))
     def scoped(value):return admin or value==u['department']
     if self.path=='/api/change-password':
@@ -159,6 +185,8 @@ class Handler(BaseHTTPRequestHandler):
      c.execute('UPDATE users SET active=?,role=?,department=? WHERE id=?',(active,role,department,uid));c.execute('DELETE FROM sessions WHERE user_id=?',(uid,));audit(c,u['id'],'Changed staff access',uid);return self.send(200,{'ok':True})
     return self.send(404,{'error':'Not found'})
   except (ValueError,TypeError,json.JSONDecodeError) as e:self.send(400,{'error':str(e)})
+  except PermissionError as e:self.send(403,{'error':str(e) or 'This action has not been assigned to your account.'})
+  except r2.StorageError as e:self.send(502,{'error':'Document storage is unavailable. '+str(e)})
   except Exception as e:
    if database.integrity_error(e):return self.send(409,{'error':'This record already exists or references an unavailable account.'})
    logging.error('HQ request failed: %s',type(e).__name__)

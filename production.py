@@ -29,7 +29,7 @@ class Bridge(server.Handler):
  def end_headers(self):pass
 
 def create_app():
- os.environ.setdefault('HQ_ENV','production');validate();server.init();app=Flask(__name__,static_folder=None);app.config['MAX_CONTENT_LENGTH']=32768
+ os.environ.setdefault('HQ_ENV','production');validate();server.init();app=Flask(__name__,static_folder=None);app.config['MAX_CONTENT_LENGTH']=22*1024*1024
  if os.environ.get('HQ_TRUST_PROXY')=='1':
   from werkzeug.middleware.proxy_fix import ProxyFix
   app.wsgi_app=ProxyFix(app.wsgi_app,x_for=1,x_proto=1)

@@ -52,6 +52,21 @@ Only shamhar07@gmail.com can invite staff, revoke invitations, change staff role
 - Owner-controlled future commission rates. Existing ledger rates are snapshots. Existing Business subscription customer rates stay frozen and earnings are limited to the first 12 paid subscription months; annual payments can record 12 covered months.
 - Audit history and password changes that revoke the user's other sessions.
 
+## Collaboration, documents and apps
+
+- **Messages**: company and department channels, groups and direct messages with optimistic send, replies, edits, reactions,
+  file attachments, typing and presence, unread markers and read receipts. Sync is incremental (a cursor with a short overlap),
+  so a poll costs one small query.
+- **Documents**: a private personal vault (500 MB quota, owner-only; even the HQ owner cannot read it), department and company
+  libraries governed by `files.view` / `files.upload` / `files.manage`, folders, sharing, previews, per-file discussion and a
+  30-day trash. Files live in Cloudflare R2 behind short-lived signed URLs; type allowlist, magic-byte checks and a 20 MB limit apply.
+- **Discussions**: longer, threaded topics by audience (company or department) with categories, status and moderation.
+- **Search and commands**: `⌘K` / `Ctrl+K` searches people, jobs, documents and discussions you may see, and runs actions.
+- **Install as an app**: HQ is an installable PWA (manifest, app-shell service worker, offline page). API responses are never cached.
+- **Android app**: a hardened WebView shell in [`android/`](android/README.md), built by the *Android app* workflow.
+
+New permissions: `files.personal`, `files.view`, `files.upload`, `files.manage`. Discussions use `messages.use`.
+
 ## What affiliation does and does not do
 
 Affiliates here are partner records, not internal staff accounts. Public partner signup/login and a separate personal commission dashboard are available at `/partners.html`. Only approved Active partners can create attributed Stripe checkout links. No external tracking cookie or arbitrary website checkout attribution is claimed. Payment verification is recorded by authorized staff with evidence references; the app does not independently confirm bank receipts. Payout recording documents a transfer performed outside HQ and does not initiate a bank transfer.

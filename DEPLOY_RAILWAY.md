@@ -54,6 +54,11 @@ by the Dockerfile to the bundled public Supabase CA (`certs/supabase-ca.crt`; re
 **hq-mail:** no extra variables. Run exactly one replica.
 **hq-backup:** `R2_ACCOUNT_ID`, `R2_BUCKET`, `R2_ACCESS_KEY_ID`, `R2_SECRET_ACCESS_KEY`, `HQ_BACKUP_KEY`.
 
+**Documents (hq-web):** `R2_ACCOUNT_ID`, `R2_FILES_BUCKET`, `R2_ACCESS_KEY_ID`, `R2_SECRET_ACCESS_KEY`. Use a **separate private bucket**
+for documents (for example `digitalburj-hq-files`) and an access key scoped to it; keep the backup bucket's key separate. Without these,
+production refuses uploads rather than writing to local disk. Apply `sql/schema.sql` (new tables: channels, messages, files, folders,
+topics) to the production database before deploying a build that includes Documents and Messages v2.
+
 The backup job connects as `digitalburj_app` (read access through its RLS policies). No administrative database
 credential is needed anywhere at runtime; keep the Supabase admin password out of Railway.
 

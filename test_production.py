@@ -37,7 +37,7 @@ class ProductionTests(unittest.TestCase):
     c.execute('SET LOCAL ROLE hq_test_anon');c.execute('SELECT * FROM '+schema+'.users').fetchall()
  def test_wsgi_transaction_and_host(self):
   with patch.dict(os.environ,{'HQ_PUBLIC_URL':'http://localhost','HQ_ENV':'development'}):
-   app=production.create_app();client=app.test_client();self.assertEqual(client.get('/healthz').status_code,200);self.assertEqual(client.get('/readyz').status_code,200);self.assertEqual(client.get('/healthz',headers={'Host':'wrong.example'}).status_code,400)
+   app=production.create_app();client=app.test_client();self.assertEqual(client.get('/healthz').status_code,200);self.assertEqual(client.get('/readyz').status_code,200);self.assertEqual(client.get('/healthz',headers={'Host':'wrong.example'}).status_code,400);self.assertEqual(client.get('/healthz',headers={'Host':'healthcheck.railway.app'}).status_code,200);self.assertEqual(client.get('/readyz',headers={'Host':'healthcheck.railway.app'}).status_code,400)
    self.assertEqual(client.post('/api/login',json={'email':'absent@example.invalid','password':'test-password-123'}).status_code,401)
    with server.connection() as c:self.assertEqual(c.execute('SELECT COUNT(*) FROM attempts').fetchone()[0],1)
  def test_failed_commit_does_not_report_login_success(self):

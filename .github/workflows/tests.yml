@@ -21,15 +21,23 @@ jobs:
           python-version: '3.12'
       - run: pip install --require-hashes -r requirements.txt
       - name: SQLite and application checks
-        run: python -m unittest test_hq.py test_integrations.py test_production.py -v
+        run: python -m unittest test_hq.py test_integrations.py test_production.py test_backup.py -v
       - name: PostgreSQL checks
         env:
           DATABASE_URL: postgresql://postgres:disposable-test-password@localhost:5432/hq_test?sslmode=disable
           HQ_TEST_POSTGRES: '1'
-        run: python -m unittest test_hq.py test_integrations.py test_production.py -v
+        run: python -m unittest test_hq.py test_integrations.py test_production.py test_backup.py -v
       - name: Frontend syntax
         run: |
           node --check public/app.js
           node --check public/hq-modules.js
           node --check public/partners.js
           node --check public/account.js
+      - name: Browser UI tests
+        run: |
+          python build_preview.py
+          npm install --no-save --prefix "$RUNNER_TEMP/jsdom" jsdom@26
+          NODE_PATH="$RUNNER_TEMP/jsdom/node_modules" node test_ui.cjs
+          NODE_PATH="$RUNNER_TEMP/jsdom/node_modules" node test_modules.cjs
+      - name: Container image builds
+        run: docker build -t hq-ci .

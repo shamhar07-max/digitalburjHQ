@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """DigitalBurj HQ — dependency-free internal workspace server."""
 import argparse, datetime, hashlib, hmac, http.cookies, json, mimetypes, os, pathlib, secrets, sqlite3, time
+STATIC_TYPES={'.webmanifest':'application/manifest+json','.js':'text/javascript; charset=utf-8','.mjs':'text/javascript; charset=utf-8'}
 from http.server import ThreadingHTTPServer, BaseHTTPRequestHandler
 import hq_features as features
 import integrations
@@ -95,7 +96,7 @@ class Handler(BaseHTTPRequestHandler):
   try:p=p.resolve();p.relative_to((ROOT/'public').resolve())
   except ValueError:return self.send(403)
   if not p.is_file():return self.send(404)
-  self.send_response(200);self.send_header('Content-Type',mimetypes.guess_type(str(p))[0] or 'application/octet-stream');self.send_header('X-Content-Type-Options','nosniff');self.send_header('X-Frame-Options','DENY');self.send_header('Referrer-Policy','same-origin');self.send_header('Content-Security-Policy',"default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data: https://*.r2.cloudflarestorage.com; font-src 'self'; connect-src 'self'; frame-src 'self' https://*.r2.cloudflarestorage.com; manifest-src 'self'; worker-src 'self'; frame-ancestors 'none'; base-uri 'self'; form-action 'self'");self.end_headers();self.wfile.write(p.read_bytes())
+  self.send_response(200);self.send_header('Content-Type',STATIC_TYPES.get(p.suffix) or mimetypes.guess_type(str(p))[0] or 'application/octet-stream');self.send_header('Cache-Control','no-cache' if p.suffix in ('.html','.js','.css','.webmanifest') else 'public, max-age=86400');self.send_header('X-Content-Type-Options','nosniff');self.send_header('X-Frame-Options','DENY');self.send_header('Referrer-Policy','same-origin');self.send_header('Content-Security-Policy',"default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data: https://*.r2.cloudflarestorage.com; font-src 'self'; connect-src 'self'; frame-src 'self' https://*.r2.cloudflarestorage.com; manifest-src 'self'; worker-src 'self'; frame-ancestors 'none'; base-uri 'self'; form-action 'self'");self.end_headers();self.wfile.write(p.read_bytes())
  def upload(self):
   """Raw-body file upload. Storage I/O runs outside any database transaction or global write lock."""
   length=int(self.headers.get('Content-Length',0))

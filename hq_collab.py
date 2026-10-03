@@ -264,7 +264,7 @@ def chat_sync(c, u, q):
             new_cursor = max(new_cursor, max(m['updated'] for m in changed))
     online, typing = presence_rows(c, u['id'])
     allowed = {x['id'] for x in channels}
-    summary = [{'id': x['id'], 'unread': x['unread'], 'peer_read': x['peer_read'] or '', 'last_id': x['last_id']} for x in channels]
+    summary = [{'id': x['id'], 'unread': x['unread'], 'peer_read': x['peer_read'] or '', 'last_read': x['last_read'], 'last_id': x['last_id']} for x in channels]
     return {'cursor': new_cursor, 'messages': changed, 'channels': summary, 'online': online,
             'typing': {k: v for k, v in typing.items() if k in allowed}, 'total_unread': sum(x['unread'] for x in channels)}
 
@@ -863,7 +863,7 @@ def search(c, u, q):
         else:
             ok = ctx.any('files.view')
         if ok:
-            out.append({'type': 'Document', 'id': fr['id'], 'title': fr['name'], 'subtitle': {'personal': 'Personal vault', 'company': 'Company library'}.get(fr['scope'], fr['department'] + ' library'), 'page': 'files'})
+            out.append({'type': 'Document', 'id': fr['id'], 'title': fr['name'], 'subtitle': {'personal': 'Personal vault', 'company': 'Company library'}.get(fr['scope'], fr['department'] + ' library'), 'page': 'files', 'scope': fr['scope'], 'department': fr['department']})
     for t in c.execute("SELECT * FROM topics WHERE LOWER(title) LIKE ? ESCAPE '\\' OR LOWER(body) LIKE ? ESCAPE '\\' LIMIT 40", (pat, pat)):
         if topic_ok(ctx, dict(t)):
             out.append({'type': 'Discussion', 'id': t['id'], 'title': t['title'], 'subtitle': t['department'] + ' · ' + t['category'], 'page': 'discussions'})
@@ -919,7 +919,7 @@ def get(h, c, u):
                 h.send_header('Content-Disposition', ('inline' if inline else 'attachment') + '; filename*=UTF-8\'\'' + urllib.parse.quote(fr['name']))
                 h.send_header('X-Content-Type-Options', 'nosniff')
                 h.send_header('Cache-Control', 'private, no-store')
-                h.send_header('Content-Security-Policy', "default-src 'none'; sandbox")
+                h.send_header('Content-Security-Policy', "default-src 'none'; style-src 'unsafe-inline'; img-src 'self' data:" if inline else "default-src 'none'; sandbox")
                 h.end_headers()
                 h.wfile.write(data)
             else:

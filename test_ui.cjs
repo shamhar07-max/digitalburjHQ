@@ -1,13 +1,13 @@
 const assert=require('node:assert/strict'),fs=require('node:fs');
 const {JSDOM,VirtualConsole}=require(process.env.HQ_JSDOM_PATH||'jsdom');
 const errors=[];const vc=new VirtualConsole();vc.on('jsdomError',e=>errors.push(e.message));
-const dom=new JSDOM(fs.readFileSync('DigitalBurj_HQ_Preview.html','utf8'),{url:'https://hq-preview.invalid/',runScripts:'dangerously',virtualConsole:vc,beforeParse(w){w.structuredClone=structuredClone;w.HTMLDialogElement.prototype.showModal=function(){this.open=true};w.HTMLDialogElement.prototype.close=function(){this.open=false}}});
+const dom=new JSDOM(fs.readFileSync('DigitalBurj_HQ_Preview.html','utf8'),{url:'https://hq-preview.invalid/',runScripts:'dangerously',virtualConsole:vc,beforeParse(w){w.structuredClone=structuredClone;w.scrollTo=()=>{};w.HTMLDialogElement.prototype.showModal=function(){this.open=true};w.HTMLDialogElement.prototype.close=function(){this.open=false}}});
 const w=dom.window,d=w.document,settle=()=>new Promise(r=>setTimeout(r,20));
 const click=sel=>{const el=d.querySelector(sel);assert.ok(el,`Missing ${sel}`);el.click()};
 const submit=()=>d.querySelector('#dialog-form').dispatchEvent(new w.Event('submit',{bubbles:true,cancelable:true}));
 (async()=>{
- await settle();assert.ok(d.querySelector('.banner').textContent.includes('One headquarters'));
- for(const page of ['tasks','reviews','departments','staff','announcements','audit','settings','overview']){click(`[data-page="${page}"]`);assert.ok(d.querySelector('main'))}
+ await settle();assert.ok(d.querySelector('.hero').textContent.includes('One headquarters'));const sigs=[...d.querySelectorAll('.nav [data-page] svg')].map(x=>x.innerHTML);assert.ok(sigs.length>=12);assert.equal(new Set(sigs).size,sigs.length,'every module needs its own icon');for(const id of ['files','discussions'])assert.ok(d.querySelector(`.nav [data-page="${id}"]`),'Missing nav '+id);
+ for(const page of ['tasks','reviews','departments','staff','announcements','audit','settings','files','discussions','overview']){click(`[data-page="${page}"]`);assert.ok(d.querySelector('main'))}
  click('[data-page="tasks"]');click('[data-action="new-task"]');d.querySelector('#f-title').value='UI verified task';d.querySelector('#f-description').value='Acceptance criteria';d.querySelector('#f-owner').value='u3';submit();await settle();assert.ok(d.querySelector('.board').textContent.includes('UI verified task'));
  let task=[...d.querySelectorAll('.task')].find(t=>t.textContent.includes('UI verified task'));let select=task.querySelector('select');select.value='Review';select.dispatchEvent(new w.Event('change'));await settle();assert.ok(d.querySelector('.column:nth-child(3)').textContent.includes('UI verified task'));
  click('[data-page="reviews"]');click('[data-action="new-review"]');d.querySelector('#f-title').value='UI test review';d.querySelector('#f-description').value='Review context';submit();await settle();assert.ok(d.querySelector('main').textContent.includes('UI test review'));

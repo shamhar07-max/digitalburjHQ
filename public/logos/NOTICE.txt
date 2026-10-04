@@ -1,0 +1,5 @@
+Brand logos in this folder identify third-party products that HQ users can connect to.
+All names, logos and trademarks belong to their respective owners; their use here does not imply endorsement.
+Artwork is taken from open icon collections: iconify "SVG Logos" (CC0-1.0), Simple Icons (CC0-1.0) and
+LobeHub Icons (MIT). Entries drawn as a coloured tile with initials (gstack, impeccable, superpowers,
+spec-kit, aider, awesome lists) are placeholders, not official logos.

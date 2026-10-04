@@ -62,6 +62,7 @@ Only shamhar07@gmail.com can invite staff, revoke invitations, change staff role
   30-day trash. Files live in Cloudflare R2 behind short-lived signed URLs; type allowlist, magic-byte checks and a 20 MB limit apply.
 - **Discussions**: longer, threaded topics by audience (company or department) with categories, status and moderation.
 - **Search and commands**: `⌘K` / `Ctrl+K` searches people, jobs, documents and discussions you may see, and runs actions.
+- **Integrations**: a page that explains how connections are added (server variables, OAuth, signed events, MCP/skills), shows what HQ is connected to today, and lists 90+ AI tools, design tools, platforms and GitHub skill repos with setup notes and their original logos (`public/logos`, see `NOTICE.txt`).
 - **Install as an app**: HQ is an installable PWA (manifest, app-shell service worker, offline page). API responses are never cached.
 - **Android app**: a hardened WebView shell in [`android/`](android/README.md), built by the *Android app* workflow.
 

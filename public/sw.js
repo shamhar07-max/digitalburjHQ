@@ -1,9 +1,9 @@
 'use strict';
 /* DigitalBurj HQ service worker: caches the app shell only. API responses and downloads are never
    stored, so private data cannot outlive a sign-out on a shared device. */
-const VERSION = 'hq-shell-v1';
-const SHELL = ['./', 'style.css', 'homepage-components.css', 'hq-motion.css', 'hq-icons.js', 'hq-modules.js',
-  'pwa.js', 'hq-collab.js', 'hq-files.js', 'hq-topics.js', 'app.js', 'offline.html', 'offline.css', 'icons/icon-192.png', 'brand/favicon.png'];
+const VERSION = 'hq-shell-v2';
+const SHELL = ['./', 'style.css', 'homepage-components.css', 'hq-motion.css', 'hq-calm.css', 'hq-icons.js', 'hq-modules.js',
+  'pwa.js', 'hq-collab.js', 'hq-files.js', 'hq-topics.js', 'hq-integrations.js', 'app.js', 'offline.html', 'offline.css', 'icons/icon-192.png', 'brand/favicon.png'];
 
 self.addEventListener('install', e => {
   e.waitUntil(caches.open(VERSION).then(c => c.addAll(SHELL)).then(() => self.skipWaiting()));

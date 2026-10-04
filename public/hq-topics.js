@@ -137,7 +137,7 @@ function setMotion(off) {
   try { localStorage.setItem('hq-motion', off ? 'off' : 'on'); } catch { /* private mode */ }
   $$('[data-act=motion]').forEach(b => { b.innerHTML = `${ico(off ? 'play' : 'pause', 'sm')} ${off ? 'Play motion' : 'Pause motion'}`; });
 }
-try { if (localStorage.getItem('hq-motion') === 'off' || mq('(prefers-reduced-motion:reduce)')) document.documentElement.classList.add('motion-off'); } catch { /* storage unavailable */ }
+try { if (localStorage.getItem('hq-motion') !== 'on' || mq('(prefers-reduced-motion:reduce)')) document.documentElement.classList.add('motion-off'); } catch { /* storage unavailable */ }
 if (mq('(display-mode:standalone)') || navigator.standalone) document.documentElement.classList.add('pwa-standalone');
 
 function countUp(el) {

@@ -9,7 +9,7 @@ The dump runs as the restricted application role (read access via its RLS polici
 so no administrative credential is needed. Dumps are Fernet-encrypted with HQ_BACKUP_KEY
 before leaving the host. Standard library only; requests are AWS SigV4 signed.
 """
-import argparse, datetime, os, pathlib, subprocess, sys, tempfile
+import argparse, urllib.parse, datetime, os, pathlib, subprocess, sys, tempfile
 
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parents[1]))
 from r2 import R2 as _R2, StorageError, sign  # noqa: F401  (sign re-exported for tests)
@@ -64,9 +64,17 @@ def dump():
     schema = os.environ.get('HQ_DB_SCHEMA', 'hq')
     with tempfile.TemporaryDirectory() as d:
         out = os.path.join(d, 'hq.dump')
-        env = dict(os.environ, PGSSLMODE=os.environ.get('PGSSLMODE', 'verify-full' if os.environ.get('PGSSLROOTCERT') else 'require'))
-        subprocess.run(['pg_dump', '--format=custom', f'--schema={schema}', '--no-owner', '--no-privileges', '--file', out, url],
-                       check=True, env=env, stdout=subprocess.DEVNULL)
+        u = urllib.parse.urlparse(url)
+        # Connection details travel in PG* variables, never on the command line, so a failure can't echo the password.
+        env = dict(os.environ, PGHOST=u.hostname or '', PGPORT=str(u.port or 5432), PGUSER=urllib.parse.unquote(u.username or ''),
+                   PGPASSWORD=urllib.parse.unquote(u.password or ''), PGDATABASE=(u.path or '/postgres').lstrip('/') or 'postgres',
+                   PGSSLMODE=os.environ.get('PGSSLMODE', 'verify-full' if os.environ.get('PGSSLROOTCERT') else 'require'))
+        try:
+            # RLS is enforced for the app role (policy: all rows), so pg_dump must be told to read through it.
+            subprocess.run(['pg_dump', '--format=custom', '--enable-row-security', f'--schema={schema}', '--no-owner', '--no-privileges',
+                            '--file', out], check=True, env=env, stdout=subprocess.DEVNULL)
+        except subprocess.CalledProcessError as e:
+            raise SystemExit(f'pg_dump failed with exit status {e.returncode}')
         with open(out, 'rb') as f:
             return f.read()
 
